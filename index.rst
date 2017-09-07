@@ -50,7 +50,80 @@
 
    Design sketches to support a feasibility study for using lsst.verify to instrument Tasks.
 
-.. Add content here.
+Introduction
+============
+
+Requirements
+============
+
+The lsst.verify Framework
+=========================
+
+Proposed Stack Architectures
+============================
+
+Pass Metadata to a Central Measurement Package
+----------------------------------------------
+
+Architecture and Standard Components
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Requirements for Task Creators and Maintainers
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Advantages and Disadvantages
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Example Metric Implementations
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Use Observers to Make Measurements
+----------------------------------
+
+Architecture and Standard Components
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Requirements for Task Creators and Maintainers
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Advantages and Disadvantages
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Example Metric Implementations
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Use Visitors to Make Measurements
+---------------------------------
+
+Architecture and Standard Components
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Requirements for Task Creators and Maintainers
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Advantages and Disadvantages
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Example Metric Implementations
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. Nifty Problem-Solving Object-Oriented Design
+   --------------------------------------------
+
+.. Architecture and Standard Components
+   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. Requirements for Task Creators and Maintainers
+   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. Advantages and Disadvantages
+   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. Example Metric Implementations
+   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Summary
+=======
 
 .. .. rubric:: References
 
