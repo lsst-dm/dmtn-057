@@ -40,10 +40,6 @@
 
 .. Add content below. Do not include the document title.
 
-.. note::
-
-   **This technote is not yet published.**
-
 Introduction
 ============
 
