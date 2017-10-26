@@ -145,16 +145,16 @@ Architecture and Standard Components
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 In this design, all information of interest to metrics will be stored in a task's metadata.
-The metadata will be passed up to a dedicated package (named, for example, ``verify_measurements``) that will find the appropriate keys and create ``Measurement`` objects.
+The metadata will be passed up to a dedicated "afterburner" task (named, for example, ``ComputeMetricsTask``) that will find the appropriate keys and create ``Measurement`` objects.
 High-level handling of the measurements can be done by a single ``Job`` object.
-A prototype of this approach is used in the ``lsst.ap.verify.measurements`` package to handle running times, but in the interests of portability to other pipelines the final code should be a dependency of ``ap_verify`` rather than a subpackage.
+A non-Task prototype of this approach is used in the ``lsst.ap.verify.measurements`` package to handle running times, but in the interest of portability to other pipelines the final code should be in a dependency of ``ap_verify`` rather than a subpackage.
 
 To minimize coupling with the task itself, the code that performs the measurements can be placed in decorators analogous to ``lsst.pipe.base.timeMethod``.
 This approach also avoids code duplication for metrics that apply to more than one task class.
 However, as the number of metrics grows, so will the number of decorators attached to a class's ``run`` method.
 Related metrics can be grouped in one decorator; for example, ``timeMethod`` measures not only timing, but also memory usage and other forms of profiling.
 
-While tasks or their decorators are necessarily coupled to ``verify_metrics``, ``verify_measurements`` need not know about most defined metrics if the metadata keys follow a particular format that allows discovery of measurements by iterating over the metadata (e.g., ``"<task-prefix>.verify.measurements.foo"`` for a metric named ``"package.foo"``).
+While tasks or their decorators are necessarily coupled to ``verify_metrics``, ``ComputeMetricsTask`` need not know about most defined metrics if the metadata keys follow a particular format that allows discovery of measurements by iterating over the metadata (e.g., ``"<task-prefix>.verify.measurements.foo"`` for a metric named ``"package.foo"``).
 Since the correct way to merge measurements from multiple units of work depends on the metric (for example, the four use cases described :ref:`above <use-cases>` require three different approaches), a standardized key (perhaps ``"<task-prefix>.verify.combiners.foo"``) can be used to specify the algorithm to combine the data.
 The use of a string to indicate the combiner only scales well if the majority of metrics share a small number of combiners, such as sum or average.
 
@@ -167,8 +167,8 @@ The use of a string to indicate the combiner only scales well if the majority of
 
 Standardized metadata keys cannot handle metrics that depend on the results of multiple tasks (such as the :ref:`DIASource fraction<arch-metadata-examples-fdia>`).
 In this case, information can still be passed up through metadata, but tasks should *avoid* using the ``verify.measurement`` prefix so that generic ``Measurement``-making code does not mistakenly process them.
-Instead, each cross-task metric will need its own function in ``verify_measurements`` to search across all task classes for the relevant information and make a ``Measurement``.
-Handling of cross-task metrics must therefore be coordinated across at least three packages -- ``verify_metrics``, the task package(s), and ``verify_measurements``.
+Instead, each cross-task metric will need its own function in ``ComputeMetricsTask`` to search across all task classes for the relevant information and make a ``Measurement``.
+Handling of cross-task metrics must therefore be coordinated across at least three packages -- ``verify_metrics``, the task package(s), and ``ComputeMetricsTask``.
 
 Standardized metadata keys can be used to record supplementary information about a measurement, for example by using ``verify.extras`` and ``verify.notes`` PropertySets.
 
@@ -192,7 +192,7 @@ If tasks write measurement metadata directly, then maintainers must know not to 
 
 Authors of new metrics must implement a decorator that measures them, most likely in ``pipe_base`` or a specific task's package, and add it to all relevant task classes.
 The decorator must conform to all conventions regarding metadata keys.
-If the metric requires a new way to combine units of work, the new combiner must be implemented and registered under a unique name in ``verify_measurements``.
+If the metric requires a new way to combine units of work, the new combiner must be implemented and registered under a unique name in ``ComputeMetricsTask``.
 
 .. _arch-metadata-procon:
 
@@ -200,7 +200,7 @@ Advantages and Disadvantages
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 A metadata-driven architecture limits changes to the task framework to imposing a convention for metadata keys; tasks need not depend on ``verify`` at all.
-However, it does require a centralized ``Measurement``-making package that frameworks like ``ap_verify`` or ``validate_drp`` must call after all tasks have been run.
+However, it does require a centralized ``ComputeMetricsTask`` that frameworks like ``ap_verify`` or ``validate_drp`` must call after all other tasks have been run.
 
 Adding most metrics requires changes to two packages (the minimum allowed by the ``verify`` framework), but cross-task metrics require three.
 Metrics cannot be added to or removed from a task without modifying code.
@@ -216,7 +216,7 @@ The biggest weakness of this architecture may well be its dependence on conventi
 Example Metric Implementations
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Note: in practice, all the metadata keys seen by ``verify_measurements`` would be prefixed by the chain of subtasks that produced them, requiring more complex handling than a lookup by a fixed name.
+Note: in practice, all the metadata keys seen by ``ComputeMetricsTask`` would be prefixed by the chain of subtasks that produced them, requiring more complex handling than a lookup by a fixed name.
 This extra complexity is ignored in the examples, but is fairly easy to implement.
 
 .. _arch-metadata-examples-time:
@@ -320,12 +320,12 @@ This approach requires one decorator each to store the numerator and denominator
        def run(self, sensorRef, templateIdList=None):
            ...
 
-And, in ``verify_measurements``,
+And, in ``ComputeMetricsTask``,
 
 .. code-block:: py
    :emphasize-lines: 1-17,21-23
 
-   def measureDiaSourceFraction(allVerifyMetadata):
+   def measureDiaSourceFraction(self, allVerifyMetadata):
        SCIENCE_KEY = "fragments.NumScienceSources"
        DIA_KEY = "fragments.NumDiaSources"
        scienceSources = 0
@@ -344,11 +344,11 @@ And, in ``verify_measurements``,
        else:
            return None
 
-   def makeSpecializedMeasurements(allVerifyMetadata):
+   def makeSpecializedMeasurements(self, allVerifyMetadata):
        ...
-       measurement = measureDiaSourceFraction(allVerifyMetadata)
+       measurement = self.measureDiaSourceFraction(allVerifyMetadata)
        if measurement is not None:
-           job.measurements.insert(measurement)
+           self.job.measurements.insert(measurement)
        ...
 
 Note that ``measureDiaSourceFraction`` naturally takes care of the problem of combining measurements from multiple units of work.
@@ -394,7 +394,7 @@ The main complication is that there may be different ways to compute goodness of
 One could avoid duplicating information between ``gof`` and ``verify.measurements.DcrGof`` by having ``DcrMatchTemplateTask`` write the ``verify.*`` keys directly from ``run`` instead of using a decorator.
 However, mixing a task's primary and verification-specific code in this way could make it harder to understand and maintain the code, and recording metadata only in a verification-compatible format would make it hard to use by other clients.
 
-Regardless of how the keys are written, ``verify_measurements`` would need a custom combiner:
+Regardless of how the keys are written, ``MeasurementTask`` would need a custom combiner:
 
 .. code-block:: py
 
@@ -431,12 +431,12 @@ If this is the case, the ``Measurement`` may be created by an ordinary function 
 Directly constructed ``Measurements`` cannot handle metrics that depend on the results of multiple tasks (such as the :ref:`DIASource fraction<arch-direct-examples-fdia>`); such metrics must be measured in a centralized location.
 There are two ways to handle cross-task measurements:
 
-#. The necessary information can be stored in :ref:`metadata<arch-metadata>`, and computed as a special step after all tasks have been run.
+#. The necessary information can be stored in :ref:`metadata<arch-metadata>`, and computed by an "afterburner" task.
 #. We can impose a requirement that all cross-task metrics be expressible in terms of single-task metrics.
    In the DIASource fraction example such a requirement is a small burden, since both "Number of detected sources" and "Number of DIASources" are interesting metrics in their own right, but this may not be the case in general.
 
 The correct way to merge measurements from multiple units of work depends on the metric (for example, the four use cases described :ref:`above <use-cases>` require three different approaches).
-This information can be provided by requiring that ``Measurement`` objects include a merging function, which can be invoked either as part of the task parallelization framework (as shown in the :ref:`figure<fig-direct-sequence>`), or as part of a measurement-handling package (as required by the :ref:`metadata-based architecture<arch-metadata-structure>`).
+This information can be provided by requiring that ``Measurement`` objects include a merging function, which can be invoked either as part of the task parallelization framework (as shown in the :ref:`figure<fig-direct-sequence>`), or by an "afterburner" task (as required by the :ref:`metadata-based architecture<arch-metadata-structure>`).
 
 .. figure:: /_static/direct_data_flow.svg
    :name: fig-direct-sequence
@@ -474,11 +474,11 @@ Advantages and Disadvantages
 
 A direct-measurement architecture minimizes changes needed to the ``verify`` framework, which already assumes each task is responsible for persisting Job information.
 
-Adding most metrics requires changes to two packages (the minimum allowed by the ``verify`` framework), but cross-task metrics require either two (if all single-task components are themselves metrics) or three (if the implementation is kept as general as possible).
+Adding most metrics requires changes to two packages (the minimum allowed by the ``verify`` framework), but cross-task metrics require three.
 Metrics cannot be added to or removed from a task without modifying code.
 Configs could be used to disable them, although this breaks the separation of task and instrumentation code somewhat.
 
-Because of its decentralization, a direct-measurement architecture has trouble supporting cross-task metrics; in effect, one needs one framework for single-task metrics and another for cross-task metrics.
+Because of its decentralization, a direct-measurement architecture has trouble supporting cross-task metrics; in effect, one needs one framework for single-task metrics and a dedicated "afterburner" for cross-task metrics.
 
 .. _arch-direct-examples:
 
@@ -572,7 +572,7 @@ Fraction of Science Sources that Are DIASources
 This metric requires combining information from ``CalibrateTask`` and ``ImageDifferenceTask``.
 
 The source counts can be passed to verification code using an approach similar to that given for the :ref:`metadata-based architecture<arch-metadata-examples-fdia>`.
-The only difference is that the location of ``makeSpecializedMeasurements`` depends on whether Jobs are handled directly by ``CmdLineTask``, or in a higher-level package using persistence.
+The only difference is that ``makeSpecializedMeasurements`` may be called by ``CmdLineTask`` if ``MeasurementTask`` does not exist.
 
 If instead the framework requires that the number of science sources and number of DIASources be metrics, one implementation would be:
 
@@ -852,7 +852,7 @@ Fraction of Science Sources that Are DIASources
 
 This metric requires combining information from ``CalibrateTask`` and ``ImageDifferenceTask``.
 The source counts can be passed to verification code using an approach similar to that given for the :ref:`metadata-based architecture<arch-metadata-examples-fdia>`.
-The only difference is that the location of ``makeSpecializedMeasurements`` depends on whether Jobs are handled directly by ``CmdLineTask``, or in a higher-level package using persistence.
+The only difference is that ``makeSpecializedMeasurements`` may be called by ``CmdLineTask`` if ``ComputeMetricsTask`` does not exist.
 
 .. _arch-observer-examples-dcrgof:
 
@@ -1117,7 +1117,7 @@ Scalability to many metrics
 ---------------------------
 
 - The :ref:`metadata-based architecture<arch-metadata>` requires a new decorator, per task, for each metric or group of metrics.
-  In addition, the centralized code needed to merge results from multiple units of work may bloat as new kinds of metrics are introduced.
+  In addition, the ``ComputeMetricsTask`` package needed to merge results from multiple units of work may bloat as new kinds of metrics are introduced.
 - The :ref:`direct measurement architecture<arch-direct>` requires a new decorator or function call, per task, for each metric or group of metrics.
 - The :ref:`observer-based architecture<arch-observer>` requires a new config entry, per task, for each metric or group of metrics.
 - The :ref:`visitor-based architecture<arch-visitor>` requires a new config entry in a central location for each metric or group of metrics.
@@ -1152,9 +1152,9 @@ In the visitor-based architecture, all measurement code must be in a centralized
 Supporting cross-task metrics
 -----------------------------
 
-- The :ref:`metadata-based architecture<arch-metadata>` requires a special channel for each task's information, and requires that ``verify_measurements`` have some custom code for assembling the final measurement.
+- The :ref:`metadata-based architecture<arch-metadata>` requires a special channel for each task's information, and requires that ``ComputeMetricsTask`` have some custom code for assembling the final measurement.
 - The :ref:`direct measurement<arch-direct>` and :ref:`observer-based<arch-observer>` architectures require either passing measurement information through metadata, or imposing restrictions on how metrics can be defined.
-  A centralized handler is needed for cross-task metrics but not other metrics.
+  A centralized handler (possibly, but not necessarily, a ``MeasurementTask``) is needed for cross-task metrics but not other metrics.
 - The :ref:`visitor-based architecture<arch-visitor>` requires a nonstandard measurement factory.
 
 The visitor-based architecture is by far the best at cross-task metrics; the direct measurement and observer-based architectures are the worst.
@@ -1204,7 +1204,7 @@ At worst, a ``Job`` object might be persisted unexpectedly, and persisted Jobs w
 Providing measurement context
 -----------------------------
 
-- The :ref:`metadata-based architecture<arch-metadata>` can pass auxiliary information as additional keys, so long as they can be found by ``verify_measurements``.
+- The :ref:`metadata-based architecture<arch-metadata>` can pass auxiliary information as additional keys, so long as they can be found by ``MeasurementTask``.
   The :ref:`DCR goodness of fit example<arch-metadata-examples-dcrgof>` shows one way to do this.
 - The :ref:`direct measurement<arch-direct>`, :ref:`observer-based<arch-observer>`, and :ref:`visitor-based<arch-visitor>` architectures all create ``Measurement`` objects on the spot, so auxiliary information can be attached using the tools provided by the ``verify`` framework.
   However, in all three cases some contextual information might be considered internal to the class, and require special handling to pass it to the code that makes the ``Measurements``.
@@ -1217,7 +1217,7 @@ Remaining agnostic to units of work
 - The :ref:`metadata-based architecture<arch-metadata>` has a lot of difficulty reporting measurements as if all the data were processed in a single task invocation.
   Because the combining code cannot be provided by the task package, it requires cross-package coordination in a way that is bug-prone and scales poorly to large numbers of metrics.
 - The :ref:`direct measurement<arch-direct>` and :ref:`observer-based<arch-observer>` architectures give ``Measurements`` the code needed to combine them.
-  This code must be called either from ``CmdLineTask.parseAndRun``, or from a verification package.
+  This code must be called either from ``CmdLineTask.parseAndRun``, or from a ``ComputeMetricsTask``.
 - The :ref:`visitor-based architecture<arch-visitor>` give ``Measurement`` factories the code needed to combine measurements.
   This code must be called from ``CmdLineTask.parseAndRun``.
 
@@ -1249,10 +1249,10 @@ The design described in `DMTN-055`_ makes a number of significant changes to the
 requiring that tasks be immutable (a requirement currently violated by ``Task.metadata``),
 defining pipelines via a new class rather than a high-level ``CmdLineTask``,
 and
-introducing an ``ExecutorFramework`` for pre- and post-processing pipelines.
+introducing an ``ExecutionFramework`` for pre- and post-processing pipelines.
 
 - The :ref:`metadata-based architecture<arch-metadata>` can be translated to SuperTask easily, once the metadata system itself is fixed to allow immutable tasks.
-  The proposed ``verify_measurements`` package would be partially or wholly replaced by ``ExecutionFramework``.
+  The proposed ``ComputeMetricsTask`` could be partially or wholly replaced by ``ExecutionFramework``.
 - The :ref:`direct measurement architecture<arch-direct>` could be adapted by making each task's ``Job`` part of its return value rather than an attribute.
   It would make ``ExecutionFramework`` responsible for combining measurements for multiple units of work and dealing with cross-Task metrics.
 - The :ref:`observer-based architecture<arch-observer>` would struggle with immutable tasks, as observers cannot alter a ``run`` method's return value the way decorators can.
