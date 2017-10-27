@@ -351,7 +351,7 @@ And, in ``ComputeMetricsTask``,
            self.job.measurements.insert(measurement)
        ...
 
-Note that ``measureDiaSourceFraction`` naturally takes care of the problem of combining measurements from multiple units of work.
+Note that ``measureDiaSourceFraction`` naturally takes care of the problem of combining measurements from multiple units of work by combining the numerator and denominator terms before computing the fraction.
 
 .. _arch-metadata-examples-dcrgof:
 
@@ -570,7 +570,6 @@ Fraction of Science Sources that Are DIASources
 """""""""""""""""""""""""""""""""""""""""""""""
 
 This metric requires combining information from ``CalibrateTask`` and ``ImageDifferenceTask``.
-
 The source counts can be passed to verification code using an approach similar to that given for the :ref:`metadata-based architecture<arch-metadata-examples-fdia>`.
 The only difference is that ``makeSpecializedMeasurements`` may be called by ``CmdLineTask`` if ``MeasurementTask`` does not exist.
 
@@ -644,7 +643,8 @@ If instead the framework requires that the number of science sources and number 
                        "NumScienceSources")
        ...
 
-Unlike the solution given in the :ref:`metadata-based architecture<arch-metadata-examples-fdia>`, this implementation assumes that merging of multiple units of work is handled by ``NumDiaSources`` and ``NumScienceSources``.
+Unlike the solution given in the :ref:`metadata-based architecture<arch-metadata-examples-fdia>`, this implementation assumes that merging of multiple units of work is handled by ``NumDiaSources`` and ``NumScienceSources`` (which can simply be added during single-task metric processing).
+The only fraction computed is that of the total source counts.
 
 .. _arch-direct-examples-dcrgof:
 
@@ -1073,6 +1073,8 @@ A similar implementation will work if ``CalibrateTask`` and ``ImageDifferenceTas
 
 A cleaner implementation would be to provide an abstract subclass of ``Measurer`` that minimizes the work (and room for error) that needs to be done when developing a cross-task metric.
 However, designing such a class is beyond the scope of this tech note.
+
+Like the other implementations of this metric, ``DiaFractionMeasurer`` gets around the problem of correctly weighting the source fraction in each unit of work by instead adding up the individual source counts, whose fraction is computed only as the final step.
 
 .. _arch-visitor-examples-dcrgof:
 
