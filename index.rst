@@ -49,7 +49,7 @@ Since we expect, in the long run, that the ``verify`` framework will be used thr
 
 This note presents several design sketches to study the feasibility of different ways to use the ``verify`` system within tasks.
 It reviews how ``ap_verify`` and ``jointcal`` expect to be able to verify their pipelines, as well as the existing capabilities of the ``verify`` framework, before presenting a series of proposed designs for how to best integrate the existing framework into arbitrary tasks.
-Each subsection of :ref:`Proposed Stack Architectures <arch>` describes the expected costs and benefits of one approach, along with archetypal examples to illustrate the implications for metric or task implementations.
+Each design section describes the expected costs and benefits of one approach, along with archetypal examples to illustrate the implications for metric or task implementations.
 The intent is that one of the proposals can serve as the basis for a later, more formal, design and subsequent implementation in the Stack.
 
 .. _design-goals:
@@ -123,26 +123,15 @@ A single ``Job`` must contain at most one measurement of a particular metric.
 ``Jobs`` can be merged (it is not clear how conflicting measurements or metadata are handled), and can be persisted to or unpersisted from user-specified files.
 ``Job`` persistence will be replaced with Butler-based persistence at a later date.
 
-.. _arch:
-
-Proposed Stack Architectures
-============================
-
-This section presents four options for how to incorporate ``verify`` measurements into the tasks framework.
-The first is to :ref:`handle as much information as possible within task metadata<arch-metadata>`, as originally envisioned for the task framework.
-The second is to :ref:`have tasks create Measurements in-place<arch-direct>`, as originally envisioned for the verify framework.
-The third is to :ref:`delegate Measurement creation to autonomous factory objects<arch-observer>` that can be freely added or removed from a task.
-The fourth is to :ref:`delegate Measurement creation to high-level factory objects<arch-visitor>` that inspect the hierarchy of tasks and subtasks.
-
 .. _arch-metadata:
 
-Pass Metadata to a Central Measurement Package
-----------------------------------------------
+Option: Pass Metadata to a Central Measurement Package
+======================================================
 
 .. _arch-metadata-structure:
 
 Architecture and Standard Components
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+------------------------------------
 
 In this design, all information of interest to metrics will be stored in a task's metadata.
 The metadata will be passed up to a dedicated "afterburner" task (named, for example, ``ComputeMetricsTask``) that will find the appropriate keys and create ``Measurement`` objects.
@@ -175,7 +164,7 @@ Standardized metadata keys can be used to record supplementary information about
 .. _arch-metadata-workload:
 
 Requirements for Task Creators and Maintainers
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+----------------------------------------------
 
 The main requirement imposed on authors of new tasks is the use of measurement decorators.
 It may be necessary to ensure decorators are applied in a particular order (for example, ``timeMethod`` should not include measurement overhead, so it should be listed last).
@@ -197,7 +186,7 @@ If the metric requires a new way to combine units of work, the new combiner must
 .. _arch-metadata-procon:
 
 Advantages and Disadvantages
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+----------------------------
 
 A metadata-driven architecture limits changes to the task framework to imposing a convention for metadata keys; tasks need not depend on ``verify`` at all.
 However, it does require a centralized ``ComputeMetricsTask`` that frameworks like ``ap_verify`` or ``validate_drp`` must call after all other tasks have been run.
@@ -214,7 +203,7 @@ The biggest weakness of this architecture may well be its dependence on conventi
 .. _arch-metadata-examples:
 
 Example Metric Implementations
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+------------------------------
 
 Note: in practice, all the metadata keys seen by ``ComputeMetricsTask`` would be prefixed by the chain of subtasks that produced them, requiring more complex handling than a lookup by a fixed name.
 This extra complexity is ignored in the examples, but is fairly easy to implement.
@@ -222,7 +211,7 @@ This extra complexity is ignored in the examples, but is fairly easy to implemen
 .. _arch-metadata-examples-time:
 
 Running Time
-""""""""""""
+^^^^^^^^^^^^
 
 This measurement can be implemented by modifying the existing ``timeMethod`` decorator to use a standardized metric name in addition to the existing keys.
 The new key would need to take the difference between start and end times instead of storing both:
@@ -240,7 +229,7 @@ If a later version allows a single running time metric to be measured by each ta
 .. _arch-metadata-examples-nastro:
 
 Number of Sources Used for Astrometric Solution
-"""""""""""""""""""""""""""""""""""""""""""""""
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Astrometric tasks already report the number of sources used in the fitting process, so the decorator can be a simple wrapper:
 
@@ -277,7 +266,7 @@ Astrometric tasks already report the number of sources used in the fitting proce
 .. _arch-metadata-examples-fdia:
 
 Fraction of Science Sources that Are DIASources
-"""""""""""""""""""""""""""""""""""""""""""""""
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 This metric requires combining information from ``CalibrateTask`` and ``ImageDifferenceTask``.
 This approach requires one decorator each to store the numerator and denominator, and some custom code to compute the fraction:
@@ -356,7 +345,7 @@ Note that ``measureDiaSourceFraction`` naturally takes care of the problem of co
 .. _arch-metadata-examples-dcrgof:
 
 DCR Goodness of Fit
-"""""""""""""""""""
+^^^^^^^^^^^^^^^^^^^
 
 ``DcrMatchTemplateTask`` does not yet exist, but I assume it would report goodness-of-fit in the task metadata even in the absence of a verification framework.
 The main complication is that there may be different ways to compute goodness of fit, and each statistic may require its own combiner, so this information must be provided along with the measurement.
@@ -408,13 +397,13 @@ Regardless of how the keys are written, ``MeasurementTask`` would need a custom 
 
 .. _arch-direct:
 
-Make Measurements Directly
---------------------------
+Option: Make Measurements Directly
+==================================
 
 .. _arch-direct-structure:
 
 Architecture and Standard Components
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+------------------------------------
 
 In this design, ``Measurement`` objects will be made by tasks.
 Tasks will have a ``Job`` object (``Task.job``) for collecting their ``Measurements``, which can be either persisted or passed upward as part of a task's return value.
@@ -449,7 +438,7 @@ This information can be provided by requiring that ``Measurement`` objects inclu
 .. _arch-direct-workload:
 
 Requirements for Task Creators and Maintainers
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+----------------------------------------------
 
 The main requirement imposed on authors of new tasks is the use of measurement decorators or functions.
 It may be necessary to ensure measurements are made in a particular order (for example, timing should not include measurement overhead).
@@ -470,7 +459,7 @@ Standard combiners may be made available through a support package to reduce cod
 .. _arch-direct-procon:
 
 Advantages and Disadvantages
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+----------------------------
 
 A direct-measurement architecture minimizes changes needed to the ``verify`` framework, which already assumes each task is responsible for persisting Job information.
 
@@ -483,12 +472,12 @@ Because of its decentralization, a direct-measurement architecture has trouble s
 .. _arch-direct-examples:
 
 Example Metric Implementations
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+------------------------------
 
 .. _arch-direct-examples-time:
 
 Running Time
-""""""""""""
+^^^^^^^^^^^^
 
 The existing ``timeMethod`` decorator handles finding the running time itself, so the ``Measurement``-making decorator only needs to package the information.
 Since this design imposes a dependency between two decorators, the new decorator raises an exception if the ``timeMethod`` decorator is not used.
@@ -529,7 +518,7 @@ If a later version allows a single running time metric to be measured by each ta
 .. _arch-direct-examples-nastro:
 
 Number of Sources Used for Astrometric Solution
-"""""""""""""""""""""""""""""""""""""""""""""""
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Astrometric tasks already report the number of sources used in the fitting process, so the decorator can be a simple wrapper:
 
@@ -567,7 +556,7 @@ Astrometric tasks already report the number of sources used in the fitting proce
 .. _arch-direct-examples-fdia:
 
 Fraction of Science Sources that Are DIASources
-"""""""""""""""""""""""""""""""""""""""""""""""
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 This metric requires combining information from ``CalibrateTask`` and ``ImageDifferenceTask``.
 The source counts can be passed to verification code using an approach similar to that given for the :ref:`metadata-based architecture<arch-metadata-examples-fdia>`.
@@ -649,7 +638,7 @@ The only fraction computed is that of the total source counts.
 .. _arch-direct-examples-dcrgof:
 
 DCR Goodness of Fit
-"""""""""""""""""""
+^^^^^^^^^^^^^^^^^^^
 
 ``DcrMatchTemplateTask`` does not yet exist, but I assume it would report goodness-of-fit in the task metadata even in the absence of a verification framework.
 The decorator wraps the metadata in a ``Measurement``.
@@ -689,13 +678,13 @@ The decorator wraps the metadata in a ``Measurement``.
 
 .. _arch-observer:
 
-Use Observers to Make Measurements
-----------------------------------
+Option: Use Observers to Make Measurements
+==========================================
 
 .. _arch-observer-structure:
 
 Architecture and Standard Components
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+------------------------------------
 
 In this design, ``Measurement`` objects will be made by factory objects separate from the task itself.
 Tasks will have a ``Job`` object for collecting their measurements, which can be either persisted or passed upward as part of a task's return value.
@@ -729,7 +718,7 @@ This information can be provided by requiring that ``Measurement`` objects inclu
 .. _arch-observer-workload:
 
 Requirements for Task Creators and Maintainers
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+----------------------------------------------
 
 Authors of new tasks must include in the task configuration information indicating which factories are to be attached to a task.
 The convention for defaults may be to register either all applicable factories, or a subset that is deemed to have little runtime overhead.
@@ -748,7 +737,7 @@ The factory must ensure the resulting ``Measurement`` has a combining functor, a
 .. _arch-observer-procon:
 
 Advantages and Disadvantages
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+----------------------------
 
 An observer-based architecture provides maximum decentralization of responsibility: not only is each task responsible for handling its own measurements, but little to no task code needs to be aware of the specific metrics defined for each task.
 While the observer architecture is not the only one that allows run-time configuration of metrics, it is the one where such configuration fits most naturally by far.
@@ -767,14 +756,14 @@ Either approach involves significant changes to existing code.
 .. _arch-observer-examples:
 
 Example Metric Implementations
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+------------------------------
 
 These examples assume that ``InvalidMeasurementError`` is handled by ``notify`` to prevent metrics-related errors from leaking into primary task code.
 
 .. _arch-observer-examples-time:
 
 Running Time
-""""""""""""
+^^^^^^^^^^^^
 
 In this design, it would be easier for the factory to perform the timing itself than to copy the measurements from ``timeMethod`` (or any other decorator on ``run``).
 Note that there is no way to guarantee that the running time factory handles Finish before any other measurement factories do.
@@ -809,7 +798,7 @@ Assuming users don't just adopt the default settings, the config file for a task
 .. _arch-observer-examples-nastro:
 
 Number of Sources Used for Astrometric Solution
-"""""""""""""""""""""""""""""""""""""""""""""""
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Astrometric tasks report the number of sources used in the fitting process, but this information is not easily available at update time.
 This implementation assumes all returned information is also stored in metadata.
@@ -848,7 +837,7 @@ Assuming users don't just adopt the default settings, the config file might look
 .. _arch-observer-examples-fdia:
 
 Fraction of Science Sources that Are DIASources
-"""""""""""""""""""""""""""""""""""""""""""""""
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 This metric requires combining information from ``CalibrateTask`` and ``ImageDifferenceTask``.
 The source counts can be passed to verification code using an approach similar to that given for the :ref:`metadata-based architecture<arch-metadata-examples-fdia>`.
@@ -857,7 +846,7 @@ The only difference is that ``makeSpecializedMeasurements`` may be called by ``C
 .. _arch-observer-examples-dcrgof:
 
 DCR Goodness of Fit
-"""""""""""""""""""
+^^^^^^^^^^^^^^^^^^^
 
 ``DcrMatchTemplateTask`` does not yet exist, but I assume it would report goodness-of-fit in the task metadata even in the absence of a verification framework.
 The factory wraps the metadata in a ``Measurement``.
@@ -893,13 +882,13 @@ Assuming users don't just adopt the default settings, the config file for ``DcrM
 
 .. _arch-visitor:
 
-Use Visitors to Make Measurements
----------------------------------
+Option: Use Visitors to Make Measurements
+=========================================
 
 .. _arch-visitor-structure:
 
 Architecture and Standard Components
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+------------------------------------
 
 In this design, ``Measurement`` objects will be made by factory objects separate from the task itself.
 The factory objects are created at a high level and applied to the task hierarchy as a whole, so managing the resulting measurements can be done by a single ``Job`` object.
@@ -935,7 +924,7 @@ See :ref:`the figure below<fig-visitor-sequence>` for an example of a factory th
 .. _arch-visitor-workload:
 
 Requirements for Task Creators and Maintainers
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+----------------------------------------------
 
 Authors of new tasks must be aware of any metrics that apply to the new task but not to all tasks, and modify the code of applicable factories to handle the new task.
 If the factories make assumptions about a task's fields, they may constrain the implementation of the task itself.
@@ -953,7 +942,7 @@ The factory implementation must consider the consequences of being passed any ``
 .. _arch-visitor-procon:
 
 Advantages and Disadvantages
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+----------------------------
 
 Because it is so highly centralized, the visitor-based architecture is the best at dealing with cross-task metrics -- each visitor accesses all tasks run on a particular unit of work, whether it needs to or not.
 
@@ -969,12 +958,12 @@ Extracting measurements from a task may require that a task write metadata it no
 .. _arch-visitor-examples:
 
 Example Metric Implementations
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+------------------------------
 
 .. _arch-visitor-examples-time:
 
 Running Time
-""""""""""""
+^^^^^^^^^^^^
 
 The existing ``timeMethod`` decorator handles finding the running time itself, so the ``Measurement`` factory only needs to package the information.
 This implementation ignores tasks that don't have the ``@timeMethod`` decorator, although this carries the risk that running time metrics defined for new tasks will silently fail.
@@ -1000,7 +989,7 @@ This implementation ignores tasks that don't have the ``@timeMethod`` decorator,
 .. _arch-visitor-examples-nastro:
 
 Number of Sources Used for Astrometric Solution
-"""""""""""""""""""""""""""""""""""""""""""""""
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Astrometric tasks return the number of sources used in the fitting process, but this information is not easily available while iterating over the task hierarchy.
 This implementation assumes all returned information is also stored in metadata.
@@ -1031,7 +1020,7 @@ This implementation also assumes that whatever central registry keeps track of `
 .. _arch-visitor-examples-fdia:
 
 Fraction of Science Sources that Are DIASources
-"""""""""""""""""""""""""""""""""""""""""""""""
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 This metric requires combining information from ``CalibrateTask`` and ``ImageDifferenceTask``.
 This implementation assumes a single, high-level task manages the entire pipeline, so that ``CalibrateTask`` and ``ImageDifferenceTask`` are indirect subtasks of it.
@@ -1079,7 +1068,7 @@ Like the other implementations of this metric, ``DiaFractionMeasurer`` gets arou
 .. _arch-visitor-examples-dcrgof:
 
 DCR Goodness of Fit
-"""""""""""""""""""
+^^^^^^^^^^^^^^^^^^^
 
 ``DcrMatchTemplateTask`` does not yet exist, but I assume it would report goodness-of-fit in the task metadata even in the absence of a verification framework.
 The factory wraps the metadata in a ``Measurement``.
