@@ -406,6 +406,7 @@ Metrics cannot be added to or removed from a task without modifying code.
 Configs could be used to disable them, although keeping task- and metrics-related options separated would require a new config base class or a similarly far-reaching change to current configs.
 
 Because of its decentralization, a direct-measurement architecture has trouble supporting cross-task metrics; in effect, one needs one framework for single-task metrics and a dedicated "afterburner" for cross-task metrics.
+This duality makes the system both harder to maintain and harder to develop new metrics for.
 
 .. _arch-direct-examples:
 
@@ -631,6 +632,7 @@ Adding dataset-based metrics requires changes to two packages (the minimum allow
 
 Because it avoids interacting with ``Task`` objects, this design is the best at dealing with cross-task metrics, and is (almost) immune to the problem of multiple units of work.
 However, it has trouble supporting metrics dealing with particular algorithms; in effect, one needs one framework for data-driven metrics and a separate system for internal metrics.
+This duality makes the system both harder to maintain and harder to develop new metrics for.
 
 Attaching contextual information to a measurement can be difficult in a dataset-based design, because that information is often internal to the task even when the measurement itself can be computed from the data.
 However, data provenance and the verification environment can be easily attached.
