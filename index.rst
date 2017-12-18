@@ -230,7 +230,7 @@ Astrometric tasks already report the number of sources used in the fitting proce
 .. code-block:: py
    :emphasize-lines: 1-12,16,23
 
-   def numAstroSources():
+   def numAstroSources(func):
        @wraps(func)
        def wrapper(self, *args, **kwargs):
            result = func(self, *args, **kwargs)
@@ -268,7 +268,7 @@ This approach requires one decorator each to store the numerator and denominator
 .. code-block:: py
    :emphasize-lines: 1-9,13,19-27,31
 
-   def numScienceSources():
+   def numScienceSources(func):
        @wraps(func)
        def wrapper(self, *args, **kwargs):
            result = func(self, *args, **kwargs)
@@ -286,7 +286,7 @@ This approach requires one decorator each to store the numerator and denominator
            doUnpersist=True):
            ...
 
-   def numDiaSources():
+   def numDiaSources(func):
        @wraps(func)
        def wrapper(self, *args, **kwargs):
            result = func(self, *args, **kwargs)
@@ -306,7 +306,7 @@ This approach requires one decorator each to store the numerator and denominator
 And, in ``ComputeMetricsTask``,
 
 .. code-block:: py
-   :emphasize-lines: 1-17,21-23
+   :emphasize-lines: 1-18,22-24
 
    def measureDiaSourceFraction(self, allVerifyMetadata):
        SCIENCE_KEY = "fragments.NumScienceSources"
@@ -424,7 +424,7 @@ Since this design imposes a dependency between two decorators, the new decorator
 .. code-block:: py
    :emphasize-lines: 1-19,23
 
-   def timeMeasurement():
+   def timeMeasurement(func):
        @wraps(func)
        def wrapper(self, job, *args, **kwargs):
            try:
@@ -464,7 +464,7 @@ Astrometric tasks already report the number of sources used in the fitting proce
 .. code-block:: py
    :emphasize-lines: 1-13,17,24
 
-   def numAstroSources():
+   def numAstroSources(func):
        @wraps(func)
        def wrapper(self, job, *args, **kwargs):
            result = func(self, job, *args, **kwargs)
@@ -505,7 +505,7 @@ If instead the framework requires that the number of science sources and number 
 .. code-block:: py
    :emphasize-lines: 1-12,16,22-33,37
 
-   def numScienceSources():
+   def numScienceSources(func):
        @wraps(func)
        def wrapper(self, job, *args, **kwargs):
            result = func(self, job, *args, **kwargs)
@@ -526,7 +526,7 @@ If instead the framework requires that the number of science sources and number 
            doUnpersist=True):
            ...
 
-   def numDiaSources():
+   def numDiaSources(func):
        @wraps(func)
        def wrapper(self, job, *args, **kwargs):
            result = func(self, job, *args, **kwargs)
