@@ -68,7 +68,6 @@ I assume the designs presented in this tech note must have or enable the followi
 #. It must be easy to define and adopt new metrics as construction and commissioning proceed.
 #. It must be easy to add and instrument new tasks as construction and commissioning proceed.
 #. It must continue to be possible to run a task without forcing the user to perform metrics-related setup or use metrics-related features.
-#. Measurements must be produced with provenance information or other context that might help interpret them.
 #. Metrics must be definable in a way that makes no assumptions about how or whether a dataset is divided among multiple task invocations for processing (e.g., for parallel computing).
    Following `DMTN-055`_, this division shall be called "units of work" in the following discussion.
 #. It must be possible to compute the same quantity (e.g., running time, source counts, image statistics) at different stages of the pipeline; for different visits, CCDs, patches, or sources; or for different photometric bands.
@@ -93,11 +92,6 @@ Fraction of Science Sources that Are DIASources
     Measures the rate at which DIASources appear in test data.
     Should report the weighted average for multiple units of work.
     Requires combining information from ``CalibrateTask`` and ``ImageDifferenceTask``, or their substitutes.
-DCR Goodness of Fit
-    Measures the quality of the model used to correct for Differential Chromatic Refraction.
-    The goodness-of-fit statistic used may be configurable, and which definition was adopted must be reported as measurement metadata.
-    Should report a statistically rigorous combination for multiple units of work.
-    Applicable to ``DcrMatchTemplateTask``; ignored if DCR is not used for a particular pipeline run.
 
 
 The lsst.verify Framework
@@ -176,7 +170,7 @@ Custom task runners that call ``run`` multiple times per ``Task`` object must st
 
 If all verification-related work is done by decorators, than maintaining instrumented tasks is easy; ``Task`` code can be changed and decorators added or removed as desired.
 The only risk is if decorators constrain task implementations in some way; such details must be clearly marked as unchangeable.
-If decorators depend on particular metadata keys being available, the lines that write those keys must be kept in sync with the key names passed to decorators (see :ref:`DCR goodness of fit<arch-metadata-examples-dcrgof>`).
+If decorators depend on particular metadata keys being available, the lines that write those keys must be kept in sync with the key names passed to decorators.
 If tasks write measurement metadata directly, then maintainers must know not to touch those lines in any way.
 
 Authors of new metrics must implement a decorator that measures them, most likely in ``pipe_base`` or a specific task's package, and add it to all relevant task classes.
@@ -341,59 +335,6 @@ And, in ``ComputeMetricsTask``,
        ...
 
 Note that ``measureDiaSourceFraction`` naturally takes care of the problem of combining measurements from multiple units of work by combining the numerator and denominator terms before computing the fraction.
-
-.. _arch-metadata-examples-dcrgof:
-
-DCR Goodness of Fit
-^^^^^^^^^^^^^^^^^^^
-
-``DcrMatchTemplateTask`` does not yet exist, but I assume it would report goodness-of-fit in the task metadata even in the absence of a verification framework.
-The main complication is that there may be different ways to compute goodness of fit, and each statistic may require its own combiner, so this information must be provided along with the measurement.
-
-.. code-block:: py
-   :emphasize-lines: 1-19,23
-
-   def dcrGoodnessOfFit(valueKey, typeKey):
-       def customWrapper(func):
-           @wraps(func)
-           def wrapper(self, *args, **kwargs):
-               try:
-                   return func(self, *args, **kwargs)
-               finally:
-                   if self.metadata.exists(valueKey) and self.metadata.exists(typeKey):
-                       gofValue = self.metadata.get(valueKey)
-                       gofType = self.metadata.get(typeKey)
-                       self.metadata.add(name = "verify.measurements.DcrGof",
-                                        value = gofValue)
-                       self.metadata.add(name = "verify.combiners.DcrGof",
-                                        value = "dcrStatCombine")
-                       # added to Measurement's `notes` member, AND needed by dcrStatCombine
-                       self.metadata.add(name = "verify.notes.DcrGof.gofStatistic",
-                                        value = gofType)
-           return wrapper
-       return customWrapper
-
-   class DcrMatchTemplateTask(CmdLineTask):
-       ...
-       @dcrGoodnessOfFit("gof", "gofType")
-       @pipeBase.timeMethod
-       def run(self, dataRef, selectDataList=[]):
-           ...
-
-One could avoid duplicating information between ``gof`` and ``verify.measurements.DcrGof`` by having ``DcrMatchTemplateTask`` write the ``verify.*`` keys directly from ``run`` instead of using a decorator.
-However, mixing a task's primary and verification-specific code in this way could make it harder to understand and maintain the code, and recording metadata only in a verification-compatible format would make it hard to use by other clients.
-
-Regardless of how the keys are written, ``MeasurementTask`` would need a custom combiner:
-
-.. code-block:: py
-
-   def dcrStatCombine(allVerifyDcrMetadata):
-       try:
-           statisticType = allVerifyDcrMetadata[0].get(
-               "notes.DcrGof.gofStatistic")
-           if statisticType == "Chi-Squared":
-               chisqCombine(allVerifyDcrMetadata)
-           elif ...
 
 .. _arch-direct:
 
@@ -633,47 +574,6 @@ The sub-measurements would need to be combined in ``ComputeMetricsTask``:
 Unlike the solution given in the :ref:`metadata-based architecture<arch-metadata-examples-fdia>`, this implementation assumes that merging of multiple units of work is handled by ``NumDiaSources`` and ``NumScienceSources`` (which can simply be added during single-task metric processing).
 The only fraction computed is that of the total source counts.
 
-.. _arch-direct-examples-dcrgof:
-
-DCR Goodness of Fit
-^^^^^^^^^^^^^^^^^^^
-
-``DcrMatchTemplateTask`` does not yet exist, but I assume it would report goodness-of-fit in the task metadata even in the absence of a verification framework.
-The decorator wraps the metadata in a ``Measurement``.
-
-.. code-block:: py
-   :emphasize-lines: 1-3, 5-22,26
-
-   def chisqCombine(measurements):
-       """Compute a chi-squared Measurement for a data set from values for subsets."""
-       ...
-
-   def dcrGoodnessOfFit(job, valueKey, typeKey):
-       def customWrapper(func):
-           @wraps(func)
-           def wrapper(self, job, *args, **kwargs):
-               try:
-                   return func(self, job, *args, **kwargs)
-               finally:
-                   if self.metadata.exists(valueKey) and self.metadata.exists(typeKey):
-                       gofValue = self.metadata.get(valueKey)
-                       gofType = self.metadata.get(typeKey)
-                       measurement = lsst.verify.Measurement(
-                           "DcrGof",
-                           gofValue * getUnits(gofType))
-                       measurement.combiner = getCombiner(gofType)
-                       measurement.notes['gofStatistic', gofType]
-                       job.measurements.insert(measurement)
-           return wrapper
-       return customWrapper
-
-   class DcrMatchTemplateTask(CmdLineTask):
-       ...
-       @dcrGoodnessOfFit("gof", "gofType")
-       @pipeBase.timeMethod
-       def run(self, job, dataRef, selectDataList=[]):
-           ...
-
 .. _arch-dataset:
 
 Option: Make Measurements From Output Datasets
@@ -826,36 +726,6 @@ The astrometric matches are stored by the Stack as intermediate data, and can be
        job.measurements.insert(measurement)
 
 Note that this metric requires configuration information, because the DIA source catalog has a variable datatype name.
-
-.. _arch-dataset-examples-dcrgof:
-
-DCR Goodness of Fit
-^^^^^^^^^^^^^^^^^^^
-
-``DcrMatchTemplateTask`` does not yet exist, but I assume it would report goodness-of-fit in the task metadata even in the absence of a verification framework.
-
-.. code-block:: py
-
-   def measureDcrGof(job, butler, dataId):
-       gofMeasurements = []
-
-       # Metadata stored only by top-level tasks
-       metadataType = ImageDifferenceTask()._getMetadataName()
-       allMetadata = getAll(butler, metadataType, dataId)
-
-       for metadata in allMetadata:
-           valueKey = subtaskPrefix + "gof"
-           typeKey = subtaskPrefix + "gofType"
-
-           if self.metadata.exists(valueKey) and self.metadata.exists(typeKey):
-               gofValue = metadata.get(valueKey)
-               gofType = metadata.get(typeKey)
-               gofMeasurements.append(gofValue)
-               # Assume gofType constant in any run
-
-       measurement = lsst.verify.Measurement("DcrGof", combine(gofMeasurements, gofType))
-       measurement.notes["gofStatistic", gofType]
-       job.measurements.insert(measurement)
 
 .. _arch-observer:
 
@@ -1020,43 +890,6 @@ Fraction of Science Sources that Are DIASources
 This metric requires combining information from ``CalibrateTask`` and ``ImageDifferenceTask``.
 The source counts can be passed to verification code using an approach similar to that given for the :ref:`metadata-based architecture<arch-metadata-examples-fdia>`.
 The only difference is that ``makeSpecializedMeasurements`` may be called by ``CmdLineTask`` if ``ComputeMetricsTask`` does not exist.
-
-.. _arch-observer-examples-dcrgof:
-
-DCR Goodness of Fit
-^^^^^^^^^^^^^^^^^^^
-
-``DcrMatchTemplateTask`` does not yet exist, but I assume it would report goodness-of-fit in the task metadata even in the absence of a verification framework.
-The factory wraps the metadata in a ``Measurement``.
-
-.. code-block:: py
-
-   class DcrGoodnessOfFitMeasurer:
-       def __init__(self, task):
-           self.task = task
-
-       def update(job, event):
-           if (event == "Finish"):
-               try:
-                   gofValue = self.task.metadata.get('gof')
-                   gofType = self.task.metadata.get('gofType')
-               except KeyError as e:
-                   raise InvalidMeasurementError(
-                       "Expected `gof` and `gofType` metadata keywords"
-                       ) from e
-               measurement = lsst.verify.Measurement(
-                   "DcrGof",
-                   gofValue * getUnits(gofType))
-               measurement.combiner = getCombiner(gofType)
-               measurement.notes['gofStatistic', gofType]
-               job.measurements.insert(measurement)
-
-Assuming users don't just adopt the default settings, the config file for ``DcrMatchTemplateTask`` might look something like:
-
-.. code-block:: py
-
-   config.listeners['DcrGoodnessOfFitMeasurer'] = EventListenerConfig()
-   config.listeners['DcrGoodnessOfFitMeasurer'].events = ['Finish']
 
 .. _arch-visitor:
 
@@ -1243,37 +1076,6 @@ However, designing such a class is beyond the scope of this tech note.
 
 Like the other implementations of this metric, ``DiaFractionMeasurer`` gets around the problem of correctly weighting the source fraction in each unit of work by instead adding up the individual source counts, whose fraction is computed only as the final step.
 
-.. _arch-visitor-examples-dcrgof:
-
-DCR Goodness of Fit
-^^^^^^^^^^^^^^^^^^^
-
-``DcrMatchTemplateTask`` does not yet exist, but I assume it would report goodness-of-fit in the task metadata even in the absence of a verification framework.
-The factory wraps the metadata in a ``Measurement``.
-
-.. code-block:: py
-
-   class DcrGoodnessOfFitMeasurer(Measurer):
-       def __init__(self):
-           self.measurements = defaultdict(list)
-           self.combiner = None
-
-       def actOn(task):
-           if isinstance(task, DcrMatchTemplateTask):
-               try:
-                   gofValue = self.metadata.get('gof')
-                   gofType = self.metadata.get('gofType')
-               except KeyError as e:
-                   raise InvalidMeasurementError(
-                       "Expected `gof` and `gofType` metadata keywords"
-                       ) from e
-               measurement = lsst.verify.Measurement(
-                   "DcrGof",
-                   gofValue * getUnits(gofType)))
-               measurement.notes['gofStatistic', gofType]
-               self.combiner = getCombiner(gofType)  # assumed same for all runs
-               self.measurements[type(task)].append(measurement)
-
 .. _comparisons:
 
 Comparisons
@@ -1382,18 +1184,6 @@ Allowing pipeline users to ignore metrics
 None of the five designs require user setup or force the user to handle measurements.
 At worst, a ``Job`` object might be persisted unexpectedly, and persisted Jobs will become invisible once ``verify`` uses Butler persistence.
 
-Providing measurement context
------------------------------
-
-- The :ref:`metadata-based architecture<arch-metadata>` can pass auxiliary information as additional keys, so long as they can be found by ``MeasurementTask``.
-  The :ref:`DCR goodness of fit example<arch-metadata-examples-dcrgof>` shows one way to do this.
-- The :ref:`direct measurement<arch-direct>`, :ref:`observer-based<arch-observer>`, and :ref:`visitor-based<arch-visitor>` architectures all create ``Measurement`` objects on the spot, so auxiliary information can be attached using the tools provided by the ``verify`` framework.
-  However, in all three cases some contextual information might be considered internal to the class, and require special handling to pass it to the code that makes the ``Measurements``.
-- The :ref:`dataset-based architecture<arch-dataset>` can attach environment or data provenance information to ``Measurement`` objects.
-  However, any context internal to the class will require special handling, most likely by persisting the needed information as task metadata.
-
-All five designs can provide context information, although in the metadata-based architecture this comes at the cost of a more complex key naming convention and in the dataset-based architecture by intrusively modifying task code.
-
 Remaining agnostic to units of work
 -----------------------------------
 
@@ -1485,8 +1275,6 @@ The best design to pursue depends on the relative priorities of the design goals
     +---------------------------------+------------+----------+---------+----------+---------+
     | Allowing pipeline users to      | Good       | Fair     | Good    | Fair     | Fair    |
     | ignore metrics                  |            |          |         |          |         |
-    +---------------------------------+------------+----------+---------+----------+---------+
-    | Providing measurement context   | Fair       | Good     | Poor    | Good     | Good    |
     +---------------------------------+------------+----------+---------+----------+---------+
     | Remaining agnostic to units of  | Poor       | Fair     | Fair    | Fair     | Fair    |
     | work                            |            |          |         |          |         |
